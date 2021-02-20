@@ -103,11 +103,14 @@ function remove (
 }
 
 function updateDOMListeners (oldVnode: VNodeWithData, vnode: VNodeWithData) {
+  // 根据vnode判断是否有定义一个点击事件。有的话就继续执行，没有就return
+  // 是一个点击事件的话就会给on进行赋值，进行一系列的赋值操作
   if (isUndef(oldVnode.data.on) && isUndef(vnode.data.on)) {
     return
   }
   const on = vnode.data.on || {}
   const oldOn = oldVnode.data.on || {}
+  // 这里把target指向dom节点
   target = vnode.elm
   normalizeEvents(on)
   updateListeners(on, oldOn, add, remove, createOnceHandler, vnode.context)
