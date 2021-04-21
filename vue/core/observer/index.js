@@ -52,8 +52,10 @@ export class Observer {
       } else {
         copyAugment(value, arrayMethods, arrayKeys)
       }
+      // todo 监听数组
       this.observeArray(value)
     } else {
+      // todo 监听对象
       this.walk(value)
     }
   }
@@ -114,6 +116,9 @@ export function observe (value: any, asRootData: ?boolean): Observer | void {
     return
   }
   let ob: Observer | void
+
+  // 如果当前对象有__ob__就使用当前对象的__ob__
+  // 否则创建一个
   if (hasOwn(value, '__ob__') && value.__ob__ instanceof Observer) {
     ob = value.__ob__
   } else if (

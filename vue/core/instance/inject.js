@@ -40,6 +40,7 @@ export function resolveInject (inject: any, vm: Component): ?Object {
   if (inject) {
     // inject is :any because flow is not smart enough to figure out cached
     const result = Object.create(null)
+    // inject配置项的所有的key
     const keys = hasSymbol
       ? Reflect.ownKeys(inject)
       : Object.keys(inject)
@@ -47,14 +48,18 @@ export function resolveInject (inject: any, vm: Component): ?Object {
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i]
       // #6574 in case the inject object is observed...
+      // 跳过__ob__对象
       if (key === '__ob__') continue
       const provideKey = inject[key].from
       let source = vm
+      // todo
+      // 遍历所有的祖代组件，直到根组件，找到provide中对应的key的值，最后得到result[key] = provide[provideKey]
       while (source) {
         if (source._provided && hasOwn(source._provided, provideKey)) {
           result[key] = source._provided[provideKey]
           break
         }
+        // 找父组件
         source = source.$parent
       }
       if (!source) {

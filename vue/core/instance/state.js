@@ -70,6 +70,7 @@ function initProps (vm: Component, propsOptions: Object) {
   const props = vm._props = {}
   // cache prop keys so that future props updates can iterate using Array
   // instead of dynamic object key enumeration.
+  // 缓存props的每个key,性能优化
   const keys = vm.$options._propKeys = []
   const isRoot = !vm.$parent
   // root instance props should be converted
@@ -106,6 +107,7 @@ function initProps (vm: Component, propsOptions: Object) {
     // static props are already proxied on the component's prototype
     // during Vue.extend(). We only need to proxy props defined at
     // instantiation here.
+    // todo 代码key到vm对象上
     if (!(key in vm)) {
       proxy(vm, `_props`, key)
     }
@@ -292,7 +294,8 @@ function initMethods (vm: Component, methods: Object) {
         )
       }
     }
-    vm[key] = typeof methods[key] !== 'function' ? noop : bind(methods[key], vm) // todo 绑定当实例到函数中
+    // todo 绑定当实例到函数中
+    vm[key] = typeof methods[key] !== 'function' ? noop : bind(methods[key], vm) 
   }
 }
 
