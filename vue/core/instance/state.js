@@ -50,6 +50,7 @@ export function initState (vm: Component) {
   const opts = vm.$options
   //  todo: 初始化props
   if (opts.props) initProps(vm, opts.props)
+  // 判重处理，methods对象中定义的属性不能和props对象中的属性重复，props优先级>methods优先级
   if (opts.methods) initMethods(vm, opts.methods)
   if (opts.data) {
     // todo: 初始化data
@@ -272,6 +273,8 @@ function createGetterInvoker(fn) {
 
 function initMethods (vm: Component, methods: Object) {
   const props = vm.$options.props
+
+  // 判重 methods中的key不能和props中的key重复
   for (const key in methods) {
     if (process.env.NODE_ENV !== 'production') {
       if (typeof methods[key] !== 'function') {
