@@ -48,6 +48,7 @@ export function shallowRef(value?: unknown) {
   return createRef(value, true)
 }
 
+// ! Ref Class
 class RefImpl<T> {
   private _value: T
 
