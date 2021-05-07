@@ -51,20 +51,35 @@ function decodeAttr (value, shouldDecodeNewlines) {
   return value.replace(re, match => decodingMap[match])
 }
 
+/**
+ * 通过循环遍历html模版字符串，依次处理其中的各个标签，以及标签上的属性
+ * @param {*} html
+ * @param {*} options
+ */
 export function parseHTML (html, options) {
   const stack = []
   const expectHTML = options.expectHTML
+  // 是否是自闭合标签
   const isUnaryTag = options.isUnaryTag || no
+  // 是否可以只有开始标签
   const canBeLeftOpenTag = options.canBeLeftOpenTag || no
+
+  // 记录当前在原始html字符串中的开始位置
   let index = 0
   let last, lastTag
   while (html) {
     last = html
     // Make sure we're not in a plaintext content element like script/style
+    // 确保不是在script style textarea这样的纯文本元素中
     if (!lastTag || !isPlainTextElement(lastTag)) {
+      // 找第一个<字符
       let textEnd = html.indexOf('<')
+      // textEnd === 0 说明在开头找到了
+      // 分别处理可能找到的注释标签，条件注释标签、Doctype、开始标签、结束标签
+      // 每处理完一种情况，就会截断(continue)循环，并且重置html字符串，将处理过的标签截掉，下一次循环处理剩余的html
+      // ! tokens 词法分析
       if (textEnd === 0) {
-        // Comment:
+        // 处理注释标签 <!--xx-->
         if (comment.test(html)) {
           const commentEnd = html.indexOf('-->')
 
@@ -77,7 +92,7 @@ export function parseHTML (html, options) {
           }
         }
 
-        // http://en.wikipedia.org/wiki/Conditional_comment#Downlevel-revealed_conditional_comment
+        // 处理条件注释标签 <!-- [if IE]>
         if (conditionalComment.test(html)) {
           const conditionalEnd = html.indexOf(']>')
 
@@ -87,14 +102,14 @@ export function parseHTML (html, options) {
           }
         }
 
-        // Doctype:
+        // 处理 Doctype: <!DOCTYPE html>
         const doctypeMatch = html.match(doctype)
         if (doctypeMatch) {
           advance(doctypeMatch[0].length)
           continue
         }
 
-        // End tag:
+        // 处理结束标签
         const endTagMatch = html.match(endTag)
         if (endTagMatch) {
           const curIndex = index
@@ -103,7 +118,7 @@ export function parseHTML (html, options) {
           continue
         }
 
-        // Start tag:
+        // 版本开始标签
         const startTagMatch = parseStartTag()
         if (startTagMatch) {
           handleStartTag(startTagMatch)
@@ -116,6 +131,12 @@ export function parseHTML (html, options) {
 
       let text, rest, next
       if (textEnd >= 0) {
+        // 能走到时这儿，说明虽然在html中匹配到了<xx,但是这不属于上述的几种情况
+        // 它就只一段普通的文本
+        // 从html中找到时下一个<  直到<xx是上述的几种情况的标签，则结束
+        // 在这整个过程中一直在调整textEnd的值，作为html中下一个有效标签的开始位置
+
+
         rest = html.slice(textEnd)
         while (
           !endTag.test(rest) &&
@@ -136,6 +157,7 @@ export function parseHTML (html, options) {
         text = html
       }
 
+      // 次文本的内容从html模版字符串上截取掉
       if (text) {
         advance(text.length)
       }
@@ -144,7 +166,9 @@ export function parseHTML (html, options) {
         options.chars(text, index - text.length, index)
       }
     } else {
+      // 处理 script、style、textarea 标签的闭合标签
       let endTagLength = 0
+      // 开始标签的小写形式
       const stackedTag = lastTag.toLowerCase()
       const reStackedTag = reCache[stackedTag] || (reCache[stackedTag] = new RegExp('([\\s\\S]*?)(</' + stackedTag + '[^>]*>)', 'i'))
       const rest = html.replace(reStackedTag, function (all, text, endTag) {
@@ -179,18 +203,20 @@ export function parseHTML (html, options) {
   // Clean up any remaining tags
   parseEndTag()
 
+  // todo
   function advance (n) {
     index += n
     html = html.substring(n)
   }
 
+  // todo 解析开始标签
   function parseStartTag () {
     const start = html.match(startTagOpen)
     if (start) {
       const match = {
-        tagName: start[1],
-        attrs: [],
-        start: index
+        tagName: start[1], // 标签名
+        attrs: [],  // 属性，占位符
+        start: index   // 标签的开始位置
       }
       advance(start[0].length)
       let end, attr
