@@ -14,6 +14,7 @@ import {
   onErrorCaptured,
   shallowRef
 } from '@vue/runtime-test'
+import { createApp } from 'vue'
 
 describe('Suspense', () => {
   const deps: Promise<any>[] = []
@@ -66,6 +67,70 @@ describe('Suspense', () => {
     await Promise.all(deps)
     await nextTick()
     expect(serializeInner(root)).toBe(`<div>async</div>`)
+  })
+
+  test('emits events', async () => {
+    const Async = defineAsyncComponent({
+      render() {
+        return h('div', 'async')
+      }
+    })
+
+    const onFallback = jest.fn()
+    const onResolve = jest.fn()
+    const onPending = jest.fn()
+
+    const show = ref(true)
+    const Comp = {
+      setup() {
+        return () =>
+          h(
+            Suspense,
+            {
+              onFallback,
+              onResolve,
+              onPending,
+              // force displaying the fallback right away
+              timeout: 0
+            },
+            {
+              default: () => (show.value ? h(Async) : null),
+              fallback: h('div', 'fallback')
+            }
+          )
+      }
+    }
+
+    const root = nodeOps.createElement('div')
+    render(h(Comp), root)
+    expect(onFallback).toHaveBeenCalledTimes(1)
+    expect(onPending).toHaveBeenCalledTimes(1)
+    expect(onResolve).toHaveBeenCalledTimes(0)
+
+    await Promise.all(deps)
+    await nextTick()
+    expect(onFallback).toHaveBeenCalledTimes(1)
+    expect(onPending).toHaveBeenCalledTimes(1)
+    expect(onResolve).toHaveBeenCalledTimes(1)
+
+    show.value = false
+    await nextTick()
+    expect(onFallback).toHaveBeenCalledTimes(1)
+    expect(onPending).toHaveBeenCalledTimes(2)
+    expect(onResolve).toHaveBeenCalledTimes(2)
+
+    deps.length = 0
+    show.value = true
+    await nextTick()
+    expect(onFallback).toHaveBeenCalledTimes(2)
+    expect(onPending).toHaveBeenCalledTimes(3)
+    expect(onResolve).toHaveBeenCalledTimes(2)
+
+    await Promise.all(deps)
+    await nextTick()
+    expect(onFallback).toHaveBeenCalledTimes(2)
+    expect(onPending).toHaveBeenCalledTimes(3)
+    expect(onResolve).toHaveBeenCalledTimes(3)
   })
 
   test('nested async deps', async () => {
@@ -631,6 +696,49 @@ describe('Suspense', () => {
     expect(serializeInner(root)).toBe(`<div>oops</div>`)
   })
 
+  // #3857
+  test('error handling w/ template optimization', async () => {
+    const Async = {
+      async setup() {
+        throw new Error('oops')
+      }
+    }
+
+    const Comp = {
+      template: `
+      <div v-if="errorMessage">{{ errorMessage }}</div>
+      <Suspense v-else>
+        <div>
+          <Async />     
+        </div>
+        <template #fallback>
+          <div>fallback</div>
+        </template>
+      </Suspense>
+      `,
+      components: { Async },
+      setup() {
+        const errorMessage = ref<string | null>(null)
+        onErrorCaptured(err => {
+          errorMessage.value =
+            err instanceof Error
+              ? err.message
+              : `A non-Error value thrown: ${err}`
+          return false
+        })
+        return { errorMessage }
+      }
+    }
+
+    const root = nodeOps.createElement('div')
+    render(h(Comp), root)
+    expect(serializeInner(root)).toBe(`<div>fallback</div>`)
+
+    await Promise.all(deps)
+    await nextTick()
+    expect(serializeInner(root)).toBe(`<div>oops</div>`)
+  })
+
   it('combined usage (nested async + nested suspense + multiple deps)', async () => {
     const msg = ref('nested msg')
     const calls: number[] = []
@@ -1067,5 +1175,61 @@ describe('Suspense', () => {
     await nextTick()
     expect(serializeInner(root)).toBe(`<div>two</div>`)
     expect(calls).toEqual([`one mounted`, `one unmounted`, `two mounted`])
+  })
+
+  // #2214
+  // Since suspense renders its own root like a component, it should not patch
+  // its content in optimized mode.
+  test('should not miss nested element updates when used in templates', async () => {
+    const n = ref(1)
+    const Comp = {
+      setup() {
+        return { n }
+      },
+      template: `
+      <Suspense>
+        <div><span>{{ n }}</span></div>
+      </Suspense>
+      `
+    }
+    const root = document.createElement('div')
+    createApp(Comp).mount(root)
+    expect(root.innerHTML).toBe(`<div><span>1</span></div>`)
+
+    n.value++
+    await nextTick()
+    expect(root.innerHTML).toBe(`<div><span>2</span></div>`)
+  })
+
+  // #2215
+  test('toggling nested async setup component inside already resolved suspense', async () => {
+    const toggle = ref(false)
+    const Child = {
+      async setup() {
+        return () => h('div', 'child')
+      }
+    }
+    const Parent = () => h('div', ['parent', toggle.value ? h(Child) : null])
+    const Comp = {
+      setup() {
+        return () => h(Suspense, () => h(Parent))
+      }
+    }
+
+    const root = nodeOps.createElement('div')
+    render(h(Comp), root)
+    expect(serializeInner(root)).toBe(`<div>parent<!----></div>`)
+
+    toggle.value = true
+    // wait for flush
+    await nextTick()
+    // wait for child async setup resolve
+    await nextTick()
+    // child should be rendered now instead of stuck in limbo
+    expect(serializeInner(root)).toBe(`<div>parent<div>child</div></div>`)
+
+    toggle.value = false
+    await nextTick()
+    expect(serializeInner(root)).toBe(`<div>parent<!----></div>`)
   })
 })

@@ -5,7 +5,9 @@ import {
   ReactiveFlags,
   Target,
   readonlyMap,
-  reactiveMap
+  reactiveMap,
+  shallowReactiveMap,
+  shallowReadonlyMap
 } from './reactive'
 import { TrackOpTypes, TriggerOpTypes } from './operations'
 import {
@@ -13,7 +15,7 @@ import {
   trigger,
   ITERATE_KEY,
   pauseTracking,
-  enableTracking
+  resetTracking
 } from './effect'
 import {
   isObject,
@@ -22,9 +24,12 @@ import {
   hasChanged,
   isArray,
   isIntegerKey,
-  extend
+  extend,
+  makeMap
 } from '@vue/shared'
 import { isRef } from './ref'
+
+const isNonTrackableKeys = /*#__PURE__*/ makeMap(`__proto__,__v_isRef,__isVue`)
 
 const builtInSymbols = new Set(
   Object.getOwnPropertyNames(Symbol)
@@ -64,12 +69,11 @@ const arrayInstrumentations: Record<string, Function> = {}
   arrayInstrumentations[key] = function(this: unknown[], ...args: unknown[]) {
     pauseTracking()
     const res = method.apply(this, args)
-    enableTracking()
+    resetTracking()
     return res
   }
 })
 
-// ! getter 工厂
 function createGetter(isReadonly = false, shallow = false) {
   return function get(target: Target, key: string | symbol, receiver: object) {
     if (key === ReactiveFlags.IS_REACTIVE) {
@@ -78,24 +82,28 @@ function createGetter(isReadonly = false, shallow = false) {
       return isReadonly
     } else if (
       key === ReactiveFlags.RAW &&
-      receiver === (isReadonly ? readonlyMap : reactiveMap).get(target)
+      receiver ===
+        (isReadonly
+          ? shallow
+            ? shallowReadonlyMap
+            : readonlyMap
+          : shallow
+            ? shallowReactiveMap
+            : reactiveMap
+        ).get(target)
     ) {
       return target
     }
 
     const targetIsArray = isArray(target)
-    if (targetIsArray && hasOwn(arrayInstrumentations, key)) {
+
+    if (!isReadonly && targetIsArray && hasOwn(arrayInstrumentations, key)) {
       return Reflect.get(arrayInstrumentations, key, receiver)
     }
 
     const res = Reflect.get(target, key, receiver)
 
-    const keyIsSymbol = isSymbol(key)
-    if (
-      keyIsSymbol
-        ? builtInSymbols.has(key as symbol)
-        : key === `__proto__` || key === `__v_isRef`
-    ) {
+    if (isSymbol(key) ? builtInSymbols.has(key) : isNonTrackableKeys(key)) {
       return res
     }
 
@@ -127,7 +135,6 @@ function createGetter(isReadonly = false, shallow = false) {
 const set = /*#__PURE__*/ createSetter()
 const shallowSet = /*#__PURE__*/ createSetter(true)
 
-// ! setter 工厂
 function createSetter(shallow = false) {
   return function set(
     target: object,
@@ -135,9 +142,10 @@ function createSetter(shallow = false) {
     value: unknown,
     receiver: object
   ): boolean {
-    const oldValue = (target as any)[key]
+    let oldValue = (target as any)[key]
     if (!shallow) {
       value = toRaw(value)
+      oldValue = toRaw(oldValue)
       if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
         oldValue.value = value
         return true
@@ -181,8 +189,8 @@ function has(target: object, key: string | symbol): boolean {
   return result
 }
 
-function ownKeys(target: object): (string | number | symbol)[] {
-  track(target, TrackOpTypes.ITERATE, ITERATE_KEY)
+function ownKeys(target: object): (string | symbol)[] {
+  track(target, TrackOpTypes.ITERATE, isArray(target) ? 'length' : ITERATE_KEY)
   return Reflect.ownKeys(target)
 }
 
